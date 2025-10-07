@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vidyut Pravah - Latest Data</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 2em; background-color: #f0f2f5; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { color: #1a2c4e; text-align: center; }
+        .data-card { border: 1px solid #e0e0e0; padding: 20px; margin-top: 25px; border-radius: 8px; background-color: #fafafa; }
+        .data-card p { font-size: 1.2em; line-height: 1.6; margin: 10px 0; }
+        .data-card strong { color: #0056b3; }
+        .info { color: #555; font-style: italic; text-align: center; margin-top: 20px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Vidyut Pravah - Latest Captured Data</h1>
+        <hr>
+
+        {% if latest_data %}
+            <div class="data-card">
+                <p><strong>Date:</strong> {{ latest_data.date|date:"F j, Y" }}</p>
+                <p><strong>Time Block:</strong> {{ latest_data.time_block }}</p>
+                <p><strong>Current Demand:</strong> {{ latest_data.current_demand }}</p>
+                <p><strong>Yesterday's Demand:</strong> {{ latest_data.yesterday_demand }}</p>
+            </div>
+        {% else %}
+            <p class="info">⏳ No data has been captured yet. Run the script to see data here.</p>
+        {% endif %}
+
+    </div>
+</body>
+</html>
