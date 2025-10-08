@@ -3,7 +3,8 @@
 import time
 import os
 import re 
-import requests # NEW: Import the requests library
+import requests
+from urllib.parse import urlencode # ADDED: To safely build the URL for printing
 from datetime import datetime
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -20,7 +21,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # --- Configuration ---
         TARGET_URL = "https://vidyutpravah.in/state-data/tamil-nadu"
-        # NEW: API Configuration
         API_ENDPOINT = "http://172.16.7.118:8003/api/tamilnadu/demand/post.demand.php"
         WAIT_TIME_SECONDS = 300
         XPATH_CURRENT = '//*[@id="TamilNadu_map"]/div[6]/span/span'
@@ -41,14 +41,15 @@ class Command(BaseCommand):
                 current_text = None
                 yesterday_text = None
                 parsed_time_block = None 
-                parsed_date_obj = None   
-                api_status = "ErrorOccured" # Default status
+                parsed_date_obj = None
+                api_status = "UnknownError"
 
                 # --- Block 1: Data Extraction and Processing ---
                 try:
+                    # ... (The entire playwright block remains unchanged) ...
                     with sync_playwright() as p:
                         browser = p.chromium.launch(headless=True)
-                        page = browser.new_page()
+                        page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36")
                         page.set_viewport_size({"width": 1920, "height": 1080})
                         self.stdout.write(f"Navigating to: {TARGET_URL}")
                         
@@ -74,75 +75,79 @@ class Command(BaseCommand):
                                 parsed_time_block = match.group(1)
                                 date_str = match.group(2)
                                 parsed_date_obj = datetime.strptime(date_str, '%d %b %Y').date()
-                                
                                 self.stdout.write(self.style.SUCCESS(f"✅ Parsed Time Block -> {parsed_time_block}"))
                                 self.stdout.write(self.style.SUCCESS(f"✅ Parsed Date -> {parsed_date_obj}"))
+                                api_status = "DataCaptured"
                             else:
                                 self.stderr.write(self.style.ERROR("Could not find time block and date in the text."))
+                                api_status = "ParsingFailed"
                         except Exception as e:
                             self.stderr.write(self.style.ERROR(f"Error parsing text: {e}"))
+                            api_status = "ParsingFailed"
                         
-                        timestamp = run_start_time.strftime("%Y-%m-%d_%H-%M-%S")
-                        screenshot_filename = f"vidyutpravah_{timestamp}.png"
-                        screenshot_path = os.path.join(SCREENSHOT_DIR, screenshot_filename)
-                        page.screenshot(path=screenshot_path)
-                        self.stdout.write(self.style.SUCCESS(f"🖼️  Screenshot saved to: {screenshot_path}"))
+                        if api_status == "DataCaptured":
+                            timestamp = run_start_time.strftime("%Y-%m-%d_%H-%M-%S")
+                            screenshot_filename = f"vidyutpravah_{timestamp}.png"
+                            screenshot_path = os.path.join(SCREENSHOT_DIR, screenshot_filename)
+                            page.screenshot(path=screenshot_path)
+                            self.stdout.write(self.style.SUCCESS(f"🖼️  Screenshot saved to: {screenshot_path}"))
 
                         browser.close()
-                        api_status = "DataCaptured" # Set status to success if we get this far
 
                 except PlaywrightTimeoutError:
                     self.stderr.write(self.style.ERROR(f"❌ Error: The operation timed out. The website might be down or very slow."))
+                    api_status = "TimeoutError"
                 except Exception as e:
                     self.stderr.write(self.style.ERROR(f"❌ An unexpected error occurred during capture: {e}."))
+                    api_status = "ScrapingFailed"
                 
-                # --- Block 2: Data Cleaning & API Formatting (NEW) ---
-                if api_status == "DataCaptured":
-                    self.stdout.write(self.style.HTTP_INFO("\n🧹 Cleaning data for API..."))
-                    
-                    # Clean Current and Yesterday values
-                    clean_current = current_text.replace(",", "").replace(" MW", "").strip()
-                    clean_yesterday = yesterday_text.replace(",", "").replace(" MW", "").strip()
+                # --- Block 2: Push Status and Data to API ---
+                try:
+                    params = {'status': api_status}
 
-                    # Format date to YYYY-MM-DD string
-                    formatted_date = parsed_date_obj.strftime('%Y-%m-%d')
-
-                    # Format time block to hh:mm-hh:mm
-                    formatted_time = parsed_time_block.replace(" ", "")
-
-                    self.stdout.write(f"   - Date: {formatted_date}")
-                    self.stdout.write(f"   - Time: {formatted_time}")
-                    self.stdout.write(f"   - Current: {clean_current}")
-                    self.stdout.write(f"   - Yesterday: {clean_yesterday}")
-                    
-                    # --- Block 3: Push Data to API (NEW) ---
-                    try:
-                        # Build the final URL using an f-string
-                        final_api_url = (
-                            f"{API_ENDPOINT}?date={formatted_date}&time={formatted_time}"
-                            f"&current={clean_current}&yesterday={clean_yesterday}&status={api_status}"
-                        )
-                        self.stdout.write(self.style.HTTP_INFO(f"\n🚀 Pushing data to API: {final_api_url}"))
+                    if api_status == "DataCaptured":
+                        self.stdout.write(self.style.HTTP_INFO("\n🧹 Cleaning data for API..."))
                         
-                        # Make the GET request
-                        response = requests.get(final_api_url, timeout=10) # 10-second timeout
+                        clean_current = current_text.replace(",", "").replace(" MW", "").strip()
+                        clean_yesterday = yesterday_text.replace(",", "").replace(" MW", "").strip()
+                        formatted_date = parsed_date_obj.strftime('%Y-%m-%d')
+                        formatted_time = parsed_time_block.replace(" ", "")
 
-                        # Check the response status code
-                        if response.status_code == 200:
-                            self.stdout.write(self.style.SUCCESS("✅ API call successful."))
-                            print(response.text)  # Print the response content for debugging
-                        else:
-                            self.stderr.write(self.style.ERROR(f"❌ API call failed with status code: {response.status_code}"))
-                            print(response.text)  # Print the response content for debugging
+                        params['date'] = formatted_date
+                        params['time'] = formatted_time
+                        params['current'] = clean_current
+                        params['yesterday'] = clean_yesterday
+                        
+                        self.stdout.write(f"   - Date: {params['date']}")
+                        self.stdout.write(f"   - Time: {params['time']}")
+                        self.stdout.write(f"   - Current: {params['current']}")
+                        self.stdout.write(f"   - Yesterday: {params['yesterday']}")
 
-                    except requests.exceptions.RequestException as e:
-                        self.stderr.write(self.style.ERROR(f"❌ An error occurred during the API call: {e}"))
+                    # --- ADDED FOR VERIFICATION ---
+                    # This builds the URL with all parameters for printing, just as you requested.
+                    final_api_url = f"{API_ENDPOINT}?{urlencode(params)}"
+                    self.stdout.write(self.style.HTTP_INFO(f"\n🚀 Pushing data to API: {final_api_url}"))
+                    # ------------------------------
 
-                # --- Block 4: Data Saving to Database ---
-                if current_text and yesterday_text:
+                    # Make the GET request.
+                    response = requests.get(API_ENDPOINT, params=params, timeout=10)
+
+                    if response.status_code == 200:
+                        self.stdout.write(self.style.SUCCESS(f"✅ API call successful (Status: {response.status_code})."))
+                        self.stdout.write(f"   - API Response: {response.text}")
+                    else:
+                        self.stderr.write(self.style.ERROR(f"❌ API call failed with status code: {response.status_code}"))
+                        self.stderr.write(f"   - API Response: {response.text}")
+
+                except requests.exceptions.RequestException as e:
+                    self.stderr.write(self.style.ERROR(f"❌ An error occurred during the API call: {e}"))
+
+                # --- Block 3: Data Saving to Database ---
+                if api_status == "DataCaptured":
+                    # ... (Database saving block remains unchanged) ...
                     try:
                         with transaction.atomic():
-                            DemandData.objects.create(
+                            DemandData.objects.create(  
                                 current_demand=current_text,
                                 yesterday_demand=yesterday_text,
                                 time_block=parsed_time_block,
@@ -154,9 +159,10 @@ class Command(BaseCommand):
 
                 end_time = time.monotonic()
                 duration = end_time - start_time
-                self.stdout.write(self.style.SUCCESS(f"⏱️  Capture process finished in {duration:.2f} seconds."))
+                self.stdout.write(self.style.SUCCESS(f"\n⏱️  Capture process finished in {duration:.2f} seconds."))
                 
                 # --- Countdown Timer ---
+                # ... (Countdown timer remains unchanged) ...
                 self.stdout.write(self.style.HTTP_INFO("\n--- Process complete. ---"))
                 for i in range(WAIT_TIME_SECONDS, 0, -1):
                     minutes, seconds = divmod(i, 60)
