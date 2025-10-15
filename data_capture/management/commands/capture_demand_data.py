@@ -4,7 +4,7 @@ import time
 import os
 import re 
 import requests
-from urllib.parse import urlencode # ADDED: To safely build the URL for printing
+from urllib.parse import urlencode
 from datetime import datetime
 from django.core.management.base import BaseCommand
 from django.db import transaction

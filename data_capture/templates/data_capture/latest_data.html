@@ -1,35 +1,259 @@
+{% load static tailwind_tags %}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vidyut Pravah - Latest Data</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 2em; background-color: #f0f2f5; color: #333; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        h1 { color: #1a2c4e; text-align: center; }
-        .data-card { border: 1px solid #e0e0e0; padding: 20px; margin-top: 25px; border-radius: 8px; background-color: #fafafa; }
-        .data-card p { font-size: 1.2em; line-height: 1.6; margin: 10px 0; }
-        .data-card strong { color: #0056b3; }
-        .info { color: #555; font-style: italic; text-align: center; margin-top: 20px;}
-    </style>
+    <title>Vidyut Pravah - Live Data</title>
+    
+    {% tailwind_css %}
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
-    <div class="container">
-        <h1>Vidyut Pravah - Latest Captured Data</h1>
-        <hr>
 
-        {% if latest_data %}
-            <div class="data-card">
-                <p><strong>Date:</strong> {{ latest_data.date|date:"F j, Y" }}</p>
-                <p><strong>Time Block:</strong> {{ latest_data.time_block }}</p>
-                <p><strong>Current Demand:</strong> {{ latest_data.current_demand }}</p>
-                <p><strong>Yesterday's Demand:</strong> {{ latest_data.yesterday_demand }}</p>
+<body class="bg-slate-100 font-sans">
+    
+    <div class="max-w-7xl mx-auto my-8 p-6 md:p-8 bg-white rounded-2xl shadow-xl">
+        <h1 class="text-3xl md:text-4xl font-bold text-slate-900 text-center">
+            Vidyut Pravah - Live Captured Data
+        </h1>
+        <hr class="my-6 border-slate-200">
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-6" id="data-card-container">
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-8 gap-y-6">
+                
+                <div>
+                    <p class="text-sm font-medium text-slate-500">Date</p>
+                    <p class="text-lg font-semibold text-slate-900" id="latest-date">Loading...</p>
+                </div>
+
+                <div>
+                    <p class="text-sm font-medium text-slate-500">Time Block</p>
+                    <p class="text-lg font-semibold text-slate-900" id="latest-time-block">Loading...</p>
+                </div>
+
+                <div>
+                    <p class="text-sm font-medium text-slate-500">Current Demand</p>
+                    <p class="text-lg font-semibold text-blue-600" id="latest-current-demand">Loading...</p>
+                </div>
+
+                <div>
+                    <p class="text-sm font-medium text-slate-500">Yesterday's Demand</p>
+                    <p class="text-lg font-semibold text-purple-600" id="latest-yesterday-demand">Loading...</p>
+                </div>
+
+                <div class="sm:col-span-2 md:col-span-1 lg:col-span-1">
+                    <p class="text-sm font-medium text-slate-500">Last Update</p>
+                    <p class="text-lg font-semibold text-slate-900" id="latest-captured-at">Loading...</p>
+                </div>
+
             </div>
-        {% else %}
-            <p class="info">⏳ No data has been captured yet. Run the script to see data here.</p>
-        {% endif %}
+        </div>
+        
+        <p class="text-center text-slate-500 italic mt-6" id="info-message" style="display: none;">
+            ⏳ No data has been captured yet.
+        </p>
 
+        <div class="flex justify-end items-center my-6">
+            <label for="chart-view-selector" class="mr-3 text-sm font-medium text-slate-600">Chart View:</label>
+            <select id="chart-view-selector" class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-auto p-2.5">
+                <option value="demand" selected>Demand</option>
+                <option value="captureTime">Capture Time</option>
+            </select>
+        </div>
+
+        <div class="relative h-96 w-full mx-auto mt-4">
+             <h2 id="chart-title" class="text-xl font-semibold text-slate-800 text-center mb-4">Recent Performance and Demand Trend</h2>
+            <canvas id="demandChart"></canvas>
+        </div>
     </div>
+
+    <script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('demandChart').getContext('2d');
+    const viewSelector = document.getElementById('chart-view-selector');
+    const chartTitle = document.getElementById('chart-title');
+    let demandChart;
+
+    function initializeChart() {
+        // --- Create Gradients (already well-implemented) ---
+        const redGradient = ctx.createLinearGradient(0, 0, 0, 400);
+        redGradient.addColorStop(0, 'rgba(239, 68, 68, 0.5)'); // Tailwind red-500
+        redGradient.addColorStop(1, 'rgba(239, 68, 68, 0.05)');
+
+        const blueGradient = ctx.createLinearGradient(0, 0, 0, 400);
+        blueGradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)'); // Tailwind blue-500
+        blueGradient.addColorStop(1, 'rgba(59, 130, 246, 0.05)');
+        
+        const purpleGradient = ctx.createLinearGradient(0, 0, 0, 400);
+        purpleGradient.addColorStop(0, 'rgba(139, 92, 246, 0.5)'); // Tailwind violet-500
+        purpleGradient.addColorStop(1, 'rgba(139, 92, 246, 0.05)');
+
+        demandChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { // Dataset 0: Current Demand
+                        label: 'Current Demand (MW)',
+                        data: [],
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        backgroundColor: blueGradient, fill: true, tension: 0.4, borderWidth: 2, yAxisID: 'y',
+                        // --- Advanced Point Styling ---
+                        pointRadius: 0, pointHoverRadius: 6, pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                        pointHoverBackgroundColor: '#fff', pointHoverBorderColor: 'rgba(59, 130, 246, 1)', pointHoverBorderWidth: 2
+                    },
+                    { // Dataset 1: Yesterday's Demand
+                        label: 'Yesterday\'s Demand (MW)',
+                        data: [],
+                        borderColor: 'rgba(139, 92, 246, 1)',
+                        backgroundColor: purpleGradient, fill: true, tension: 0.4, borderWidth: 2,
+                        borderDash: [5, 5], yAxisID: 'y',
+                        // --- Advanced Point Styling ---
+                        pointRadius: 0, pointHoverRadius: 6, pointBackgroundColor: 'rgba(139, 92, 246, 1)',
+                        pointHoverBackgroundColor: '#fff', pointHoverBorderColor: 'rgba(139, 92, 246, 1)', pointHoverBorderWidth: 2
+                    },
+                    { // Dataset 2: Capture Interval
+                        label: 'Capture Interval (s)',
+                        data: [],
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        backgroundColor: redGradient, fill: true, tension: 0.4, borderWidth: 2, yAxisID: 'y1',
+                        // --- Advanced Point Styling ---
+                        pointRadius: 0, pointHoverRadius: 6, pointBackgroundColor: 'rgba(239, 68, 68, 1)',
+                        pointHoverBackgroundColor: '#fff', pointHoverBorderColor: 'rgba(239, 68, 68, 1)', pointHoverBorderWidth: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                // === ADVANCED STYLING STARTS HERE ===
+                plugins: {
+                    // --- Custom Legend Styling ---
+                    legend: {
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            boxWidth: 8,
+                            padding: 20,
+                            color: '#475569' // slate-600
+                        }
+                    },
+                    // --- Custom Tooltip Styling ---
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(17, 24, 39, 0.8)', // gray-900 with opacity
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false, // Hide the little color box for a cleaner look
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) { label += ': '; }
+                                if (context.parsed.y !== null) {
+                                    let value = context.parsed.y;
+                                    // Add " MW" or " s" based on which dataset it is
+                                    if (context.datasetIndex === 2) { // Capture Interval
+                                        label += `${value.toFixed(2)} s`;
+                                    } else { // Demand datasets
+                                        label += `${value.toLocaleString()} MW`;
+                                    }
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Time Block', color: '#334155' }, // slate-700
+                        grid: {
+                            display: false, // Hide vertical grid lines for a cleaner chart
+                        },
+                        ticks: { color: '#64748B' } // slate-500
+                    },
+                    y: { // For Demand
+                        type: 'linear', display: true, position: 'left',
+                        title: { display: true, text: 'Demand (MW)', color: '#334155' },
+                        grid: {
+                            color: '#E2E8F0', // Very light grid lines (slate-200)
+                            drawBorder: false, // Hide the solid y-axis line
+                        },
+                        ticks: {
+                            color: '#64748B',
+                            // Add commas to large numbers
+                            callback: function(value) { return value.toLocaleString(); }
+                        }
+                    },
+                    y1: { // For Interval
+                        type: 'linear', display: false, position: 'left',
+                        title: { display: true, text: 'Interval (seconds)', color: '#334155' },
+                        grid: {
+                            color: '#E2E8F0',
+                            drawBorder: false,
+                        },
+                        ticks: {
+                            color: '#64748B'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // --- The rest of your JavaScript remains the same ---
+    function updateChartView(selectedView) {
+        const isDemandView = selectedView === 'demand';
+        demandChart.data.datasets[0].hidden = !isDemandView;
+        demandChart.data.datasets[1].hidden = !isDemandView;
+        demandChart.data.datasets[2].hidden = isDemandView;
+        demandChart.options.scales.y.display = isDemandView;
+        demandChart.options.scales.y1.display = !isDemandView;
+        chartTitle.textContent = isDemandView ? 'Recent Performance and Demand Trend' : 'Scrapy Capture Speed Trend';
+        demandChart.update();
+    }
+
+    async function updateData() {
+        try {
+            const response = await fetch("{% url 'latest_data_json' %}");
+            if (!response.ok) throw new Error('Network response was not ok');
+            const data = await response.json();
+
+            document.getElementById('latest-date').textContent = data.latest_data_card.date;
+            document.getElementById('latest-time-block').textContent = data.latest_data_card.time_block;
+            document.getElementById('latest-current-demand').textContent = data.latest_data_card.current_demand;
+            document.getElementById('latest-yesterday-demand').textContent = data.latest_data_card.yesterday_demand;
+            document.getElementById('latest-captured-at').textContent = data.latest_data_card.captured_at;
+            
+            demandChart.data.labels = data.chart_data.labels;
+            demandChart.data.datasets[0].data = data.chart_data.current_demand;
+            demandChart.data.datasets[1].data = data.chart_data.yesterday_demand;
+            demandChart.data.datasets[2].data = data.chart_data.capture_interval;
+            demandChart.update();
+
+        } catch (error) {
+            console.error('Failed to fetch data:', error);
+            document.getElementById('info-message').style.display = 'block';
+            document.getElementById('data-card-container').style.display = 'none';
+        }
+    }
+
+    initializeChart();
+    viewSelector.addEventListener('change', (event) => {
+        updateChartView(event.target.value);
+    });
+    updateChartView(viewSelector.value);
+    updateData();
+    setInterval(updateData, 15000);
+});
+</script>
 </body>
 </html>
